@@ -24,7 +24,19 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.Topology;
 
 import java.util.Properties;
+import java.util.stream.Stream;
+import java.util.stream.Collectors;
 import java.util.concurrent.CountDownLatch;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
+
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
+
+import java.io.File;
 
 /**
  * In this example, we implement a simple LineSplit program using the high-level Streams DSL
@@ -40,11 +52,33 @@ public class Pipe {
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
 
+	File modelZip = new File("src/main/resources/IrisModel.zip");
+	boolean saveUpdater = true;
+	MultiLayerNetwork model = MultiLayerNetwork.load(modelZip, saveUpdater);
+
         final StreamsBuilder builder = new StreamsBuilder();
 
 	KStream<String, String> source = builder.stream("test-input");
-	KStream<String, String> words = source.mapValues(value -> value + value);
-        words.to("test-output");
+
+	KStream<String, String> result = source.mapValues(value -> {
+		System.out.println("The input is: " + value);
+
+		String[] strArray = value.split(",");
+		double[] doubleArray = Arrays.stream(strArray)
+		                        .mapToDouble(Double::parseDouble)
+		                        .toArray();
+		double[][] inputArray = {doubleArray};
+
+		INDArray inputNDA = Nd4j.create(inputArray);
+		INDArray outputNDA = model.output(inputNDA);
+
+		System.out.println("Probabilities: " + outputNDA.toString());
+
+		return outputNDA.toString();
+
+	});
+
+        result.to("test-output");
 
         final Topology topology = builder.build();
 	System.out.println(topology.describe());
